@@ -1222,6 +1222,34 @@ function buildMoat(plan, addFace) {
   // steep earth banks on the outer and inner edge of the ring
   const outer = Math.max(...plan.moat.map((m) => Math.max(Math.abs(m.x) + m.w / 2, Math.abs(m.z) + m.d / 2))),
     inner = Math.min(...plan.moat.map((m) => Math.max(Math.abs(m.x) - m.w / 2, Math.abs(m.z) - m.d / 2)));
+  if (plan.moatBanks === "strips") {
+    // strips that cross or touch each other (island channels, tower rings): an earth wall only where a strip's
+    // side meets solid ground, found by sampling just outside every side
+    const inMoat = (x, z) => plan.moat.some((m) => Math.abs(x - m.x) < m.w / 2 && Math.abs(z - m.z) < m.d / 2);
+    for (const m of plan.moat)
+      for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const len = nx ? m.d : m.w,
+          ex = m.x + (nx * m.w) / 2,
+          ez = m.z + (nz * m.d) / 2,
+          steps = Math.max(1, Math.ceil(len / 0.5));
+        let run = null;
+        for (let k = 0; k <= steps; k++) {
+          const t = -len / 2 + (k / steps) * len,
+            px = nx ? ex + nx * 0.2 : m.x + t,
+            pz = nx ? m.z + t : ez + nz * 0.2,
+            solid = k < steps && !inMoat(px, pz) && Math.abs(px) < 110 && Math.abs(pz) < 110;
+          if (solid && run === null) run = t;
+          if (!solid && run !== null) {
+            const a = run,
+              b = t,
+              mid = (a + b) / 2;
+            if (b - a > 0.3) addFace(nx ? ex : m.x + mid, nx ? m.z + mid : ez, nx ? 0.3 : b - a, nx ? b - a : 0.3, depth, -depth, 0x6e6250);
+            run = null;
+          }
+        }
+      }
+    return;
+  }
   if (plan.custom) {
     // custom maps: every strip gets its own four earth walls (strips can be anywhere)
     for (const m of plan.moat)
@@ -1438,6 +1466,35 @@ function buildGeneratedArena() {
       for (const dx of [-7, 7]) prop("graveyard/gravestone-broken", zone.x + dx, zone.z + 10, 2, 0, true);
     makeExplosive(zone.x + 8, zone.z - 7);
   }
+  // Plan-level destructible walls («Лабиринт»): split into ~5 m sections like the courtyard walls; each run is
+  // pulled back 0.5 m at both ends so T-joints do not overlap (an overlapping section would be rejected)
+  if (plan.breakWalls?.length) {
+    const parts = [];
+    for (const [ax, az, bx, bz, height] of plan.breakWalls) {
+      const full = Math.hypot(bx - ax, bz - az);
+      if (full < 1.6) continue;
+      const ux = (bx - ax) / full,
+        uz = (bz - az) / full,
+        x0 = ax + ux * 0.5,
+        z0 = az + uz * 0.5,
+        length = full - 1,
+        count = Math.max(1, Math.ceil(length / 5.5));
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count,
+          obj = model(height <= 1.5 ? "dungeon/wall-half" : "dungeon/wall", 1),
+          size = bounds(obj).getSize(new T.Vector3());
+        obj.scale.set(length / count / size.x, height / size.y, 0.9 / size.z);
+        obj.rotation.y = Math.abs(ux) < 0.5 ? Math.PI / 2 : 0;
+        obj.position.set(x0 + ux * length * t, 0, z0 + uz * length * t);
+        obj.userData.assembly = "maze";
+        obj.userData.walkableTop = height <= 1.5;
+        obj.userData.breakable = true;
+        if (freePlacement(obj)) parts.push(obj);
+      }
+    }
+    if (parts.length) commitArchitecture("maze walls", parts);
+  }
+  for (const [x, z] of plan.barrels || []) makeExplosive(x, z);
   // Catalogue clusters chosen by the decorator (before scattered decor, so scatter fills the gaps).
   placeClusters(plan);
   // Bank landmarks come from the oriented plan.
@@ -2073,6 +2130,8 @@ function buildNavigation() {
     step: navStep,
     floors: terrainFloors,
     clear: (x, y, z) =>
+      // the stake ditch is not a place to walk: no nodes down there (bots never step in, nobody spawns there)
+      !(y < -1.5 && generatedPlan?.moat?.some((m) => Math.abs(x - m.x) <= m.w / 2 && Math.abs(z - m.z) <= m.d / 2)) &&
       !occupied(x, y, z, 0.6) &&
       !skyPlatforms.some(
         (p) =>
@@ -2687,13 +2746,13 @@ function skyDropSpot() {
   const me = player.group.position;
   for (let attempt = 0; attempt < 40; attempt++) {
     const angle = Math.random() * Math.PI * 2,
-      r = 12 + Math.random() * 28,
+      r = 24 + Math.random() * 30, // far enough that grabbing it means a run
       cell = nearestOpen(navCell({ x: me.x + Math.cos(angle) * r, z: me.z + Math.sin(angle) * r }));
     if (!navGrid[navIndex(cell.x, cell.z)]) continue;
     const x = navMin + cell.x * navStep,
       z = navMin + cell.z * navStep,
       p = new T.Vector3(x, terrainHeight(x, z), z);
-    if (occupied(p.x, p.y, p.z, 1) || Math.hypot(x - me.x, z - me.z) < 8) continue;
+    if (occupied(p.x, p.y, p.z, 1) || Math.hypot(x - me.x, z - me.z) < 18 || p.y < -1.5) continue;
     if (!findPath(p, me).length) continue;
     return p;
   }
@@ -4150,6 +4209,8 @@ function updateHUD() {
   $("score").textContent = hits + " ПОПАДАНИЙ · " + kills + " ПОБЕД";
   $("wave").textContent = sniperMode() && wave
     ? "СНАЙПЕРЫ · ОСТАЛОСЬ " + bots.filter((b) => !b.dead).length + (lastEnemies() ? " · " + nearestEnemyHint() : "")
+    : wave && task && !task.done
+    ? "ВОЛНА " + wave + "/" + WAVE_COUNT + " · " + taskHint() + " · " + enemyWord(bots.filter((b) => !b.dead).length)
     : wave && lastEnemies()
     ? "ОСТАЛОСЬ " + bots.filter((b) => !b.dead).length + " · " + nearestEnemyHint()
     : wave
@@ -4275,6 +4336,7 @@ function testTriple(code) {
   if (code === "Digit0") {
     waveGroup = WAVE_GROUPS[wave - 1].length; // no more groups this wave
     for (const b of bots) if (!b.dead) (b.hp = 0), kill(b, "moat");
+    if (task && !task.done) finishTask("ТЕСТ: ЗАДАЧА ВЫПОЛНЕНА");
     message("ТЕСТ: ВОЛНА ПРОЙДЕНА", 1.5);
   } else if (DARK.time <= 0) {
     DARK.timer = -1;
@@ -4350,6 +4412,7 @@ function nextWave() {
   waveDelay = 0;
   waveGroup = waveSpawned = 0;
   spawnGroup();
+  startTask();
   hp = Math.min(playerMaxHp, hp + 20);
   ammo = weapons[gunIndex].mag;
   message("ВОЛНА " + wave, 2.5);
@@ -4702,6 +4765,7 @@ function start() {
     dashTime = dashCooldown = shake = dashCharges = 0;
     ended = false;
     started = true;
+    placeTraps();
     nextWave();
     setTimeout(hudTest, 50);
   }
@@ -5327,7 +5391,7 @@ function updateBotLaserAim(b, dt) {
 // Snipers stand still and fire a long laser after a 0.9 s red sight line (0.7 s on hard) — break line of
 // sight or sidestep. A red powder crate sits at every tower's foot: blow it and the tower falls over and
 // takes its sniper with it. Towers standing in the ravine drop their sniper into it.
-const SNIPER = { hp: 120, range: 85, damage: 24, aim: [0.9, 0.7], pause: [2.6, 3.6], towerHeight: 8, spacing: 15 };
+const SNIPER = { hp: 150, range: 95, damage: 28, aim: [0.6, 0.45], pause: [1.5, 2.3], towerHeight: 8, spacing: 15, barrel: { moat: 0.5, ground: 0.25, ditch: 0.5 } };
 const towers = [];
 const sniperMode = () => generatedPlan?.type === "snipers";
 function clearTowers() {
@@ -5353,14 +5417,15 @@ function buildTowers() {
   const random = seededRandom(generatedPlan.seed + "-towers"),
     limit = (generatedPlan.limit || 100) - 12,
     start = generatedPlan.playerStart || generatedPlan.zones?.[0] || { x: 0, z: 0 },
-    spots = [];
+    spots = (generatedPlan.towerSpots || []).map((p) => ({ x: p.x, y: terrainHeight(p.x, p.z), z: p.z, moat: true }));
+  const inMoatArea = (x, z) => (generatedPlan.moat || []).some((m) => Math.abs(x - m.x) < m.w / 2 + 2.5 && Math.abs(z - m.z) < m.d / 2 + 2.5);
   for (let tries = 0; tries < 1600 && spots.length < (generatedPlan.snipers || 10); tries++) {
     const x = (random() * 2 - 1) * limit,
       z = (random() * 2 - 1) * limit,
       y = terrainHeight(x, z);
     // the first 600 tries look only in the ravine: up to 3 towers stand down there
     if (tries < 600 && (y > -1 || spots.filter((p) => p.ditch).length >= 3)) continue;
-    if (Math.hypot(x - start.x, z - start.z) < 26) continue;
+    if (Math.hypot(x - start.x, z - start.z) < 26 || inMoatArea(x, z)) continue;
     if (spots.some((p) => Math.hypot(p.x - x, p.z - z) < SNIPER.spacing)) continue;
     // a 3 × 3 m foot with nothing on it and flat enough
     let ok = true;
@@ -5407,7 +5472,9 @@ function buildTowers() {
     // the powder crate at its foot, on the side that faces the arena centre
     const a = Math.atan2(-s0.z, -s0.x) + (random() - 0.5) * 0.8;
     let barrel = null;
-    for (let k = 0; k < 8 && !barrel; k++) barrel = makeExplosive(s0.x + Math.cos(a + k * 0.8) * 2.6, s0.z + Math.sin(a + k * 0.8) * 2.6) || null;
+    // only some towers have a powder crate (most must be shot down the hard way)
+    if (random() < SNIPER.barrel[s0.moat ? "moat" : s0.ditch ? "ditch" : "ground"])
+      for (let k = 0; k < 8 && !barrel; k++) barrel = makeExplosive(s0.x + Math.cos(a + k * 0.8) * 2.6, s0.z + Math.sin(a + k * 0.8) * 2.6) || null;
     towers.push({ group, boxes, barrel, x: s0.x, y: s0.y, z: s0.z, top: s0.y + H + 0.15, ditch: s0.ditch, down: false });
   }
 }
@@ -5463,7 +5530,13 @@ function updateSniper(b, dt) {
   if (b.shot > 0 || distance > SNIPER.range || !visible(eye, chest)) return;
   b.shot = SNIPER.pause[0] + Math.random() * (SNIPER.pause[1] - SNIPER.pause[0]);
   const muzzle = weaponMuzzle(b),
-    dir = chest.clone().add(new T.Vector3((Math.random() - 0.5) * 0.6, 0, (Math.random() - 0.5) * 0.6)).sub(muzzle).normalize(),
+    // leads a running target: aims where you will be when the shot goes off
+    dir = chest
+      .clone()
+      .addScaledVector(playerVel, SNIPER.aim[hard] * 0.85)
+      .add(new T.Vector3((Math.random() - 0.5) * 0.6, 0, (Math.random() - 0.5) * 0.6))
+      .sub(muzzle)
+      .normalize(),
     len = SNIPER.range,
     line = new T.Mesh(
       new T.CylinderGeometry(0.03, 0.03, len, 6).rotateX(Math.PI / 2).translate(0, 0, len / 2),
@@ -6064,6 +6137,343 @@ function bomberBlast(b) {
   for (const c of explosives) if (!c.dead && c.group.position.distanceTo(b.group.position) < R) explode(c);
   updateHUD();
 }
+// ═══ v182: level-filling logic — systems that keep the player moving ═══════════════════════════════════════
+// 1. areaBlast: one explosion helper (mines, mortar strikes).
+// 2. Mines (traps): placed on open walkable ground at the start, count per map (plan.traps).
+// 3. Mortar pressure: stand within 7 m for 7 s during a wave and shells start landing on you (red marker first).
+// 4. Wave tasks: wave 2 and 4 — capture a far point, wave 3 — collect three cores; the wave does not end
+//    until the task is done. Rewards: health / power dashes.
+// 5. Snipers map: bombers keep coming while snipers are alive.
+const playerVel = new T.Vector3(),
+  lastPlayerPos = new T.Vector3();
+let velReady = false;
+function trackPlayerVelocity(dt) {
+  if (!player || dt <= 0) return;
+  const p = player.group.position;
+  if (velReady) playerVel.lerp(p.clone().sub(lastPlayerPos).divideScalar(dt).setY(0), Math.min(1, dt * 8));
+  lastPlayerPos.copy(p);
+  velReady = true;
+}
+function areaBlast(at, { radius = 3.5, toPlayer = 30, toBots = 60, walls = 60, color = 0xff5a30 } = {}) {
+  if (performance.now() - (rocketExplosion.lastSound || 0) > 120) {
+    rocketExplosion.lastSound = performance.now();
+    sfx.play("rocket-blast", { position: at, group: "impact", volume: 0.75 });
+  }
+  burst(at, 0xffa050);
+  impact(at, color, 1.3);
+  flashes.flash(at.clone().add(new T.Vector3(0, 0.8, 0)), color, 420, 13, 0.4);
+  shake = Math.max(shake, 0.2 * Math.max(0.3, 1 - player.group.position.distanceTo(at) / 30));
+  const pd = player.group.position.distanceTo(at);
+  if (pd < radius && toPlayer) damagePlayer(Math.round(toPlayer * (1 - (0.55 * pd) / radius)));
+  for (const b of bots) {
+    if (b.dead) continue;
+    const d = b.group.position.distanceTo(at);
+    if (d > radius) continue;
+    const dmg = Math.round(toBots * (1 - (0.5 * d) / radius));
+    b.hp -= dmg;
+    b.flash = 0.14;
+    if (b.giant) giantHit(b, "body", dmg);
+    if (b.hp <= 0) kill(b, "barrel");
+  }
+  for (const c of explosives) if (!c.dead && c.group.position.distanceTo(at) < radius) explode(c);
+  if (walls) blastWalls(at, radius, walls);
+  updateHUD();
+}
+// ── mines ──
+const mines = [];
+const MINE = { trigger: 1.7, fuse: 0.55, radius: 3.6 };
+function openSpot(minDist, maxDist, from, tries = 60) {
+  for (let k = 0; k < tries; k++) {
+    const a = Math.random() * Math.PI * 2,
+      r = minDist + Math.random() * (maxDist - minDist),
+      cell = nearestOpen(navCell({ x: from.x + Math.cos(a) * r, z: from.z + Math.sin(a) * r }));
+    if (!navGrid[navIndex(cell.x, cell.z)]) continue;
+    const x = navMin + cell.x * navStep,
+      z = navMin + cell.z * navStep,
+      p = new T.Vector3(x, terrainHeight(x, z), z);
+    if (p.y < -1.5 || occupied(p.x, p.y, p.z, 1)) continue;
+    if (jumpPads.some((q) => Math.hypot(q.x - x, q.z - z) < 4)) continue;
+    if (Math.hypot(x - from.x, z - from.z) < minDist * 0.8) continue;
+    return p;
+  }
+  return null;
+}
+function placeTraps() {
+  for (const m of mines) scene.remove(m.group);
+  mines.length = 0;
+  if (!generatedPlan || !navigation) return;
+  const count = generatedPlan.traps ?? 6,
+    start = player?.group.position || new T.Vector3(),
+    zones = generatedPlan.zones || [];
+  for (let k = 0, tries = 0; k < count && tries < count * 20; tries++) {
+    const p = openSpot(20, 95, new T.Vector3(0, 0, 0));
+    if (!p) continue;
+    if (p.distanceTo(start) < 22 || zones.some((z) => Math.hypot(z.x - p.x, z.z - p.z) < 9)) continue;
+    if (mines.some((m) => m.group.position.distanceTo(p) < 10)) continue;
+    const group = new T.Group(),
+      plate = new T.Mesh(new T.CylinderGeometry(0.42, 0.5, 0.12, 12), new T.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.5, roughness: 0.5 })),
+      eye = new T.Mesh(sharedSphere(0.11, 8, 6), new T.MeshBasicMaterial({ color: HDR(0xff2a2a, 4) }));
+    plate.position.y = 0.06;
+    eye.position.y = 0.16;
+    group.add(plate, eye);
+    group.position.copy(p);
+    scene.add(group);
+    mines.push({ group, eye, fuse: 0, phase: Math.random() * 6 });
+    k++;
+  }
+}
+function updateMines(dt) {
+  const t = performance.now() * 0.001;
+  for (let i = mines.length - 1; i >= 0; i--) {
+    const m = mines[i],
+      at = m.group.position;
+    if (m.fuse > 0) {
+      m.fuse -= dt;
+      m.eye.visible = Math.floor(t * 16) % 2 === 0;
+      if (m.fuse <= 0) {
+        scene.remove(m.group);
+        mines.splice(i, 1);
+        areaBlast(at.clone().add(new T.Vector3(0, 0.3, 0)), { radius: MINE.radius, toPlayer: difficulty === DIFFICULTY.hard ? 42 : 34, toBots: 70 });
+      }
+      continue;
+    }
+    m.eye.visible = Math.sin(t * 3 + m.phase) > 0.2;
+    if (!active) continue;
+    const near = (q) => Math.hypot(q.x - at.x, q.z - at.z) < MINE.trigger && Math.abs(q.y - at.y) < 1.4;
+    if (near(player.group.position) || bots.some((b) => !b.dead && !b.flight && near(b.group.position))) {
+      m.fuse = MINE.fuse;
+      sound(1500, 0.08, "square", 0.04);
+    }
+  }
+}
+// ── mortar pressure ──
+const PRESSURE = { radius: 7, delay: 7, every: 2.1, warn: 1.3, blast: 3.2 };
+const strikes = [];
+let campAnchor = null,
+  campTime = 0,
+  strikeTimer = 0,
+  campWarned = 0;
+function updatePressure(dt) {
+  for (let i = strikes.length - 1; i >= 0; i--) {
+    const s = strikes[i];
+    s.time -= dt;
+    const k = 1 - Math.max(0, s.time) / PRESSURE.warn;
+    s.ring.material.opacity = 0.35 + 0.5 * Math.abs(Math.sin(k * 14));
+    s.fill.scale.setScalar(Math.max(0.01, k));
+    s.shell.visible = s.time < 0.45;
+    s.shell.position.y = s.at.y + 0.3 + Math.max(0, s.time) * 60;
+    if (s.time <= 0) {
+      scene.remove(s.ring, s.fill, s.shell);
+      strikes.splice(i, 1);
+      areaBlast(s.at.clone().add(new T.Vector3(0, 0.3, 0)), { radius: PRESSURE.blast, toPlayer: difficulty === DIFFICULTY.hard ? 30 : 22, toBots: 40, walls: 40 });
+    }
+  }
+  if (!active || !wave || cardsOpen || !player) return;
+  const me = player.group.position;
+  if (!campAnchor || campAnchor.distanceTo(me) > PRESSURE.radius) {
+    campAnchor = me.clone();
+    campTime = 0;
+    strikeTimer = 0;
+    return;
+  }
+  campTime += dt;
+  if (campTime < PRESSURE.delay) return;
+  strikeTimer -= dt;
+  if (strikeTimer > 0) return;
+  strikeTimer = PRESSURE.every;
+  if (campWarned <= 0) {
+    message("НЕ СТОЙ НА МЕСТЕ — ОБСТРЕЛ!", 2.2);
+    campWarned = 1;
+  }
+  const at = me.clone().addScaledVector(playerVel, 0.8).add(new T.Vector3((Math.random() - 0.5) * 3, 0, (Math.random() - 0.5) * 3));
+  at.y = terrainHeight(at.x, at.z, me.y + 0.5);
+  const ring = new T.Mesh(
+      new T.RingGeometry(PRESSURE.blast - 0.25, PRESSURE.blast, 36),
+      new T.MeshBasicMaterial({ color: HDR(0xff2a2a, 2), transparent: true, opacity: 0.6, side: T.DoubleSide, depthWrite: false }),
+    ),
+    fill = new T.Mesh(new T.CircleGeometry(PRESSURE.blast, 36), new T.MeshBasicMaterial({ color: 0xff3030, transparent: true, opacity: 0.22, side: T.DoubleSide, depthWrite: false })),
+    shell = new T.Mesh(sharedSphere(0.25, 8, 6), new T.MeshBasicMaterial({ color: HDR(0xffc070, 4) }));
+  for (const o of [ring, fill]) {
+    o.rotation.x = -Math.PI / 2;
+    o.position.copy(at).setY(at.y + 0.06);
+  }
+  shell.position.copy(at);
+  shell.visible = false;
+  scene.add(ring, fill, shell);
+  strikes.push({ at, ring, fill, shell, time: PRESSURE.warn });
+  sound(420, 0.25, "sine", 0.03);
+}
+// ── wave tasks ──
+const WAVE_TASKS = { 2: "capture", 3: "cores", 4: "capture" },
+  TASK = { captureRadius: 5, captureTime: 8, coreCount: 3, minDistance: 32 };
+let task = null;
+function taskSpots(n) {
+  const me = player.group.position,
+    picks = [],
+    cands = [];
+  for (const node of generatedPlan?.graph?.nodes || []) {
+    const y = node.height ?? terrainHeight(node.world.x, node.world.z);
+    cands.push(new T.Vector3(node.world.x, y, node.world.z));
+  }
+  for (let k = 0; k < 30; k++) {
+    const p = openSpot(TASK.minDistance, 90, me, 20);
+    if (p) cands.push(p);
+  }
+  // nearer candidates (32–80 m) first, the far ones only if nothing else fits
+  const far = (p) => Math.hypot(p.x - me.x, p.z - me.z) > 80;
+  for (const p of cands.sort(() => Math.random() - 0.5).sort((a, b) => far(a) - far(b))) {
+    if (picks.length >= n) break;
+    if (Math.hypot(p.x - me.x, p.z - me.z) < TASK.minDistance) continue;
+    if (picks.some((q) => q.distanceTo(p) < 22)) continue;
+    const c = nearestOpen(navCell(p)),
+      q = new T.Vector3(navMin + c.x * navStep, 0, navMin + c.z * navStep);
+    q.y = terrainHeight(q.x, q.z, p.y + 0.5);
+    if (!findPath(me, q).length) continue;
+    picks.push(q);
+  }
+  return picks;
+}
+function beacon(at, color, radius) {
+  const group = new T.Group(),
+    ring = new T.Mesh(new T.RingGeometry(radius - 0.35, radius, 48), new T.MeshBasicMaterial({ color: HDR(color, 2.5), transparent: true, opacity: 0.8, side: T.DoubleSide, depthWrite: false })),
+    beam = new T.Mesh(new T.CylinderGeometry(0.35, 0.35, 40, 10, 1, true), new T.MeshBasicMaterial({ color: HDR(color, 2), transparent: true, opacity: 0.35, depthWrite: false, blending: T.AdditiveBlending }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.08;
+  beam.position.y = 20;
+  group.add(ring, beam);
+  group.position.copy(at);
+  scene.add(group);
+  return { group, ring, beam };
+}
+function clearTask() {
+  if (!task) return;
+  for (const b of task.beacons || []) scene.remove(b.group);
+  task = null;
+}
+function startTask() {
+  clearTask();
+  const type = sniperMode() ? null : WAVE_TASKS[wave];
+  if (!type || !navigation) return;
+  if (type === "capture") {
+    const [at] = taskSpots(1);
+    if (!at) return;
+    task = { type, at, progress: 0, beacons: [beacon(at, 0x39e6ff, TASK.captureRadius)] };
+    message("ЗАДАЧА: ЗАХВАТИ ТОЧКУ", 3);
+  } else {
+    const spots = taskSpots(TASK.coreCount);
+    if (!spots.length) return;
+    task = { type, cores: spots.map((at) => ({ at, taken: false })), beacons: [] };
+    for (const c of task.cores) {
+      const b = beacon(c.at, 0xffc83d, 1.4),
+        gem = new T.Mesh(new T.OctahedronGeometry(0.55), new T.MeshBasicMaterial({ color: HDR(0xffd45a, 3.5) }));
+      gem.position.y = 1.3;
+      b.group.add(gem);
+      b.gem = gem;
+      c.beacon = b;
+      task.beacons.push(b);
+    }
+    message("ЗАДАЧА: СОБЕРИ " + spots.length + " ЯДРА", 3);
+  }
+  task.idle = 0;
+}
+const taskDone = () => !task || task.done;
+function taskHint() {
+  if (!task || task.done) return "";
+  const target = task.type === "capture" ? task.at : task.cores.filter((c) => !c.taken).sort((a, b) => a.at.distanceTo(player.group.position) - b.at.distanceTo(player.group.position))[0]?.at;
+  if (!target) return "";
+  const head = task.type === "capture" ? "ТОЧКА " + Math.floor(task.progress * 100) + "%" : "ЯДРА " + task.cores.filter((c) => c.taken).length + "/" + task.cores.length;
+  return head + " · " + directionHint(target);
+}
+function directionHint(target) {
+  const me = player.group.position,
+    look = viewMode === "rear" ? viewYaw : yaw,
+    rel = Math.atan2(target.x - me.x, target.z - me.z) - look,
+    a = Math.atan2(Math.sin(rel), Math.cos(rel)),
+    arrows = ["↑", "↖", "←", "↙", "↓", "↘", "→", "↗"];
+  return Math.round(Math.hypot(target.x - me.x, target.z - me.z)) + " м " + arrows[(Math.round(a / (Math.PI / 4)) + 8) % 8];
+}
+function finishTask(text) {
+  task.done = true;
+  for (const b of task.beacons) scene.remove(b.group);
+  message(text, 2.6);
+  sound(990, 0.18, "triangle", 0.05);
+  updateHUD();
+}
+let taskHudTimer = 0;
+function updateTask(dt) {
+  if (!task || task.done || !active) return;
+  const me = player.group.position,
+    t = performance.now() * 0.001;
+  for (const b of task.beacons) {
+    b.beam.material.opacity = 0.25 + 0.15 * Math.sin(t * 3);
+    if (b.gem) (b.gem.rotation.y = t * 2), (b.gem.position.y = 1.3 + Math.sin(t * 2.5) * 0.2);
+  }
+  if (task.type === "capture") {
+    const inside = Math.hypot(me.x - task.at.x, me.z - task.at.z) < TASK.captureRadius && Math.abs(me.y - task.at.y) < 2.5;
+    task.progress = Math.max(0, Math.min(1, task.progress + (inside ? dt / TASK.captureTime : -dt / 30)));
+    task.beacons[0].ring.material.color.copy(HDR(inside ? 0x7dffbd : 0x39e6ff, 2.5));
+    if (task.progress >= 1) {
+      hp = Math.min(playerMaxHp, hp + 30);
+      finishTask("ТОЧКА ЗАХВАЧЕНА · +30 ЗДОРОВЬЯ");
+      return;
+    }
+  } else
+    for (const c of task.cores)
+      if (!c.taken && Math.hypot(me.x - c.at.x, me.z - c.at.z) < 2 && Math.abs(me.y - c.at.y) < 2.5) {
+        c.taken = true;
+        scene.remove(c.beacon.group);
+        sound(1200, 0.12, "triangle", 0.05);
+        impact(c.at.clone().add(new T.Vector3(0, 1.2, 0)), 0xffd45a, 0.8);
+        if (task.cores.every((q) => q.taken)) {
+          dashCharges = Math.min(DASH_CHARGES_MAX, dashCharges + 2);
+          finishTask("ЯДРА СОБРАНЫ · +2 МОЩНЫХ РЫВКА");
+          return;
+        }
+        message("ЯДРО " + task.cores.filter((q) => q.taken).length + "/" + task.cores.length, 1.4);
+      }
+  taskHudTimer -= dt;
+  if (taskHudTimer <= 0) (taskHudTimer = 0.25), updateHUD();
+  // everyone is dead but the task is not done: a bomber now and then keeps the pressure on
+  if (wave && waveGroup >= WAVE_GROUPS[wave - 1].length && !bots.some((b) => !b.dead)) {
+    task.idle += dt;
+    if (task.idle > 14) {
+      task.idle = 0;
+      spawnExtraBomber();
+    }
+  } else task.idle = 0;
+}
+function spawnExtraBomber() {
+  const spot = openSpot(30, 70, player.group.position, 40);
+  if (!spot) return null;
+  const b = character(people[Math.floor(Math.random() * people.length)], spot.x, spot.z, true, botWeapon(Math.floor(Math.random() * 7)));
+  b.group.position.copy(spot);
+  b.hp = b.maxHp = 40 + wave * 8;
+  makeBomber(b);
+  recoverPosition(b);
+  bots.push(b);
+  updateHUD();
+  return b;
+}
+// snipers map: two bombers every ~20 s (15 s on hard) while any sniper is alive
+let sniperBomberTimer = 12;
+function updateSniperPressure(dt) {
+  if (!sniperMode() || !active || !wave) return;
+  if (!bots.some((b) => !b.dead && b.sniper)) return;
+  sniperBomberTimer -= dt;
+  if (sniperBomberTimer > 0) return;
+  sniperBomberTimer = difficulty === DIFFICULTY.hard ? 15 : 20;
+  if (bots.filter((b) => !b.dead && b.bomber).length >= 4) return;
+  spawnExtraBomber();
+  spawnExtraBomber();
+  message("ПОДРЫВНИКИ!", 1.4);
+}
+function updateLevelSystems(dt) {
+  trackPlayerVelocity(dt);
+  updateMines(dt);
+  updatePressure(dt);
+  updateTask(dt);
+  updateSniperPressure(dt);
+}
 const SHIELD = { fromWave: 2, maxAlive: 2, pace: 0.75, frontCos: 0.5 };
 function giveShield(b) {
   const mat = new T.MeshBasicMaterial({ color: HDR(0x55d8ff, 1.6), transparent: true, opacity: 0.32, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending }),
@@ -6537,12 +6947,13 @@ function update(dt) {
     updateSkyDrops(dt * worldScale());
     updateDarkness(dt);
     updateWalls(dt);
+    updateLevelSystems(dt);
     updateTowers(dt);
     if (active && lastEnemies()) {
       hintTimer -= dt;
       if (hintTimer <= 0) (hintTimer = 0.25), updateHUD();
     }
-    if (active && wave && waveGroup >= WAVE_GROUPS[wave - 1].length && !bots.some((b) => !b.dead) && wave === GIANT.wave && !giantSpawned && !sniperMode()) {
+    if (active && wave && waveGroup >= WAVE_GROUPS[wave - 1].length && !bots.some((b) => !b.dead) && wave === GIANT.wave && !giantSpawned && !sniperMode() && taskDone()) {
       giantSpawned = true;
       spawnGiant();
     }
@@ -6551,7 +6962,7 @@ function update(dt) {
       giantKnock.multiplyScalar(Math.exp(-4 * dt));
     }
     updateBossBar();
-    if (active && wave && waveGroup >= WAVE_GROUPS[wave - 1].length && !bots.some((b) => !b.dead)) {
+    if (active && wave && waveGroup >= WAVE_GROUPS[wave - 1].length && !bots.some((b) => !b.dead) && taskDone()) {
       if (!waveDelay) {
         waveDelay = 3;
         message(wave < WAVE_COUNT ? "ВОЛНА ПРОЙДЕНА · ПОДБЕРИ ОРУЖИЕ" : "АРЕНА ОЧИЩЕНА", 3);

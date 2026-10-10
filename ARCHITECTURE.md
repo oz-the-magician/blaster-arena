@@ -410,3 +410,25 @@ Illustrated UI (splash, menu/pause art, difficulty cards, art upgrade cards; new
 
 ## v162
 Difficulty card names 8cqw, shrunk to fit on one line (fitDiffNames). Shield bearer (SHIELD): from wave 2 every 5th enemy (max 2 alive), energy arc in front; front shots/beams/blade (within ±60°) blocked; blast, barrel or any dash breaks it; +30 HP, 0.75 pace, always assault. Test: SHIELD=1.
+
+## v182 — level-filling logic, harder snipers, «Острова», «Лабиринт»
+
+Systems that keep the player moving (game.js, block «level-filling logic»):
+- **areaBlast(at, opts)** — one explosion helper (mines, mortar strikes).
+- **Mines** — `placeTraps()` at round start, `plan.traps` per map (default 6): open nav cells ≥ 22 m from start,
+  not in a ditch, not by pads. Player or bot within 1.7 m arms a 0.55 s fuse.
+- **Mortar pressure** — `updatePressure`: staying within 7 m for 7 s of a wave brings shells every 2.1 s
+  (1.3 s red marker, lead by player velocity).
+- **Wave tasks** — `WAVE_TASKS = {2: capture, 3: cores, 4: capture}`; spots from graph nodes / far open cells,
+  32–80 m away, reachable. The wave (and the giant) waits for `taskDone()`. Idle with no enemies → extra bomber
+  every 14 s. Rewards: capture +30 HP, cores +2 power dashes. HUD wave plate shows progress and a direction.
+- **Sky drops** land 24–54 m away.
+- **Snipers map**: 14 snipers (8 on ditch-ring islands from `plan.towerSpots`), faster aim (0.6/0.45 s),
+  1.5–2.3 s pause, 28 dmg, lead the target; powder crates only on some towers; 18 mines; 2 bombers every 20 s.
+
+Generic plan features: `moatBanks: "strips"` (earth banks only where a strip meets ground), `breakWalls`
+(plan-level destructible walls), `barrels`, `traps`. Navigation has no nodes in the stake ditch.
+
+New arenas: `generator/islands.js` (3 × 3 islands, channels, bridges on a spanning tree, blue pads elsewhere,
+4 m centre plateau) and `generator/maze.js` (8 × 8 maze of 22 m cells, all walls destructible, door gaps and
+waist-high walls, plaza with a 3 m dais).

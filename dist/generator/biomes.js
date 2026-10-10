@@ -24,7 +24,7 @@ export const BIOMES = {
   ruins: { name: "Руины", ground: 0x7d8a5a, platform: 0x8e9095, lights: ["sunset", "noon"], swap: {} },
   night: { name: "Ночь", ground: 0x5e5546, platform: 0x6c6a72, lights: ["night"], swap: {}, torches: true },
 };
-export const HOME_BIOME = { ravine: "desert", fortresses: "meadow", hill: "ruins", amphitheatre: "night", snipers: "desert" };
+export const HOME_BIOME = { ravine: "desert", fortresses: "meadow", hill: "ruins", amphitheatre: "night", snipers: "desert", islands: "meadow", maze: "ruins" };
 
 // home biome 40 %, every other biome 20 %
 export function pickBiome(type, random) {

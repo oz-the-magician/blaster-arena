@@ -6,6 +6,8 @@ import { generateFortresses } from "./fortresses.js";
 import { generateHill } from "./hill.js";
 import { generateAmphitheatre } from "./amphitheatre.js";
 import { generateSnipers } from "./snipers.js";
+import { generateIslands } from "./islands.js";
+import { generateMaze } from "./maze.js";
 import { BIOMES, pickBiome, autoTorches } from "./biomes.js";
 
 export const ARENA_TYPES = {
@@ -13,6 +15,8 @@ export const ARENA_TYPES = {
   fortresses: { name: "Две крепости", generate: generateFortresses },
   hill: { name: "Царь горы", generate: generateHill },
   amphitheatre: { name: "Амфитеатр", generate: generateAmphitheatre },
+  islands: { name: "Острова", generate: generateIslands },
+  maze: { name: "Лабиринт", generate: generateMaze },
   // a separate mode, not picked at random: one wave of snipers on towers
   snipers: { name: "Снайперы на вышках", generate: generateSnipers, special: true },
 };
