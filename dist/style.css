@@ -635,3 +635,5 @@ body.touch #combo small{font-size:8px!important}
 #cards .upcard.art em{line-height:1.25}
 #cards .upcard.art .upcard-text{top:59%;bottom:10%;left:12%;right:12%;gap:2px}
 #cards .upcard.art em{font-size:clamp(10px,1.05vw,14px)!important}
+/* v181: no "rotate the device" screen — the game just runs; players turn the phone themselves */
+#rotate{display:none!important}

@@ -3816,6 +3816,11 @@ const artUrl = (name) => (typeof window !== "undefined" && window.__ASSETS?.["as
 const CARD_ART = { damage: "card-damage.webp", reload: "card-reload.webp", rate: "card-fire-rate.webp", luck: "card-luck.webp", health: "card-health.webp", vamp: "card-vampirism.webp", ricochet: "card-ricochet.webp", chain: "card-chain.webp", blastdash: "card-blastdash.webp", secondwind: "card-secondwind.webp" };
 if (typeof document !== "undefined" && document.documentElement?.style?.setProperty) {
   for (const n of ["start", "pause"]) document.documentElement.style.setProperty("--art-" + n, 'url("' + artUrl(n + ".jpg") + '")');
+  // the arena was picked in the menu (Start reloads with ?autostart): say so on the loading screen
+  if (arenaParameters?.get("autostart")) {
+    const t = document.querySelector?.("#splash small");
+    if (t) t.textContent = "ЗАГРУЗКА АРЕНЫ…";
+  }
   // loading screen: the art of this arena type (random art for classic / custom maps)
   const loadingArt = { ravine: 1, fortresses: 1, hill: 1, amphitheatre: 1, snipers: 1 }[generatedPlan?.type] ? generatedPlan.type : "random";
   document.documentElement.style.setProperty("--art-splash", 'url("' + artUrl("loading-" + loadingArt + ".jpg") + '")');
