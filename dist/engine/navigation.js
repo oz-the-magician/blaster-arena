@@ -50,6 +50,8 @@ export class LayeredNavigation {
         if (valid) n.edges.push(id);
       }
     }
+    // extra one-way links (targeted jump pads) survive local refreshes
+    for (const id of n.extra || []) if (!n.edges.includes(id)) n.edges.push(id);
   }
   // Local update after something in [minX, maxX] × [minZ, maxZ] stopped blocking (a crate broke, a barrel blew up):
   // cells there may gain walkable layers, and nodes there and next to it get their edges recomputed.

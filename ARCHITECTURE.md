@@ -432,3 +432,14 @@ Generic plan features: `moatBanks: "strips"` (earth banks only where a strip mee
 New arenas: `generator/islands.js` (3 × 3 islands, channels, bridges on a spanning tree, blue pads elsewhere,
 4 m centre plateau) and `generator/maze.js` (8 × 8 maze of 22 m cells, all walls destructible, door gaps and
 waist-high walls, plaza with a 3 m dais).
+
+### v183 — «Острова» redone as floating islands
+9 solid rock islands (base = top − 3 m) at 2–12 m over a ditch covering the whole arena (`moat` = one
+220 m strip, `stakeDensity` 0.12, `moatDamage` 10 per 0.25 s). No bridges: islands are linked only by
+**targeted pads** (`pad.target`): the throw always goes to the target, speed from the arc formula in the
+generator (`padSpeed`). Targeted pads are one-way links in navigation (stored on the target node, since the
+path search runs backwards; kept through local refreshes via `node.extra`) — bots fly between islands too.
+`padKeepout` keeps the pad spots free of template walls/props. Rescue blocks (4.6 m, top −3.4) on a 22 m
+grid in the ditch carry a yellow pad back to the nearest island; standing on them is safe (`plan.rescue`).
+Zones carry `y`: courtyard template walls are raised to the island top. Start position uses terrain height.
+Test hook: PADFLIGHTS simulates every targeted pad flight (lands within 7 m of the target).

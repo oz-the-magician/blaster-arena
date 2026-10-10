@@ -352,10 +352,11 @@ function model(key, size) {
 }
 const surfaceObjects = [],
   placementObjects = [],
-  reservedPadBoxes = [];
+  reservedPadBoxes = [],
+  padKeepout = []; // targeted pads (islands) keep their spot free before anything else is placed
 function avoidsPads(obj) {
   const box = bounds(obj);
-  return !reservedPadBoxes.some((zone) => zone.intersectsBox(box));
+  return !reservedPadBoxes.some((zone) => zone.intersectsBox(box)) && (obj.userData?.jumpPad || !padKeepout.some((zone) => zone.intersectsBox(box)));
 }
 function geometrySupports(box, surface) {
   if (!surface.model?.startsWith("platformer/block-grass")) return true;
@@ -1203,7 +1204,7 @@ function buildMoat(plan, addFace) {
     // stakes on a jittered 1.4 m grid, slightly leaning
     for (let x = m.x - m.w / 2 + 0.8; x < m.x + m.w / 2 - 0.5; x += 1.4)
       for (let z = m.z - m.d / 2 + 0.8; z < m.z + m.d / 2 - 0.5; z += 1.4)
-        stakes.push([x + (random() - 0.5) * 0.6, z + (random() - 0.5) * 0.6, 0.9 + random() * 0.7, (random() - 0.5) * 0.35, (random() - 0.5) * 0.35]);
+        if (random() < (plan.stakeDensity ?? 1)) stakes.push([x + (random() - 0.5) * 0.6, z + (random() - 0.5) * 0.6, 0.9 + random() * 0.7, (random() - 0.5) * 0.35, (random() - 0.5) * 0.35]);
   }
   const stake = new T.InstancedMesh(
       new T.ConeGeometry(0.11, 1, 5).translate(0, 0.5, 0),
@@ -1274,13 +1275,15 @@ function updateMoatHazard(dt) {
   if (!generatedPlan?.moat || !player) return;
   const p = player.group.position;
   if (p.y > -0.5 && !jumpFlight) player.lastSafe = (player.lastSafe || new T.Vector3()).copy(p);
-  if (p.y < -1.5) {
+  // standing on a rescue block in the ditch is safe
+  const onRescue = (q) => (generatedPlan.rescue || []).some((r) => Math.abs(q.x - r.x) < 2.4 && Math.abs(q.z - r.z) < 2.4 && q.y > -3.7);
+  if (p.y < -1.5 && !onRescue(p)) {
     if (!moatTime) runStats.feats.moat++;
     moatTime += dt;
     moatTick -= dt;
     if (moatTick <= 0) {
       moatTick = 0.25;
-      damagePlayer(20);
+      damagePlayer(generatedPlan.moatDamage ?? 20);
       impact(p.clone().add(new T.Vector3(0, 0.6, 0)), 0xb23a2a, 0.4);
     }
     if (immortal && moatTime > 1.2 && player.lastSafe) {
@@ -1357,6 +1360,9 @@ function buildGeneratedArena() {
   const plan = generatedPlan,
     rng = seededRandom(plan.seed),
     openings = groundOpenings(pit, ramps, plan.moat || []),
+    _keep = jumpPads
+      .filter((p) => p.target)
+      .forEach((p) => padKeepout.push(new T.Box3(new T.Vector3(p.x - 2.6, p.y - 0.5, p.z - 2.6), new T.Vector3(p.x + 2.6, p.y + 3.5, p.z + 2.6)))),
     groundGeometry = new T.BufferGeometry();
   // Ground layer: decor spots and paved courtyards first, they shape both the paint and the relief
   plan.decor ||= decorate(plan);
@@ -1444,7 +1450,7 @@ function buildGeneratedArena() {
           size = bounds(obj).getSize(new T.Vector3());
         obj.scale.set(length / count / size.x, height / size.y, 0.9 / size.z);
         obj.rotation.y = x0 === x1 ? Math.PI / 2 : 0;
-        obj.position.set(zone.x + x0 + (x1 - x0) * t, 0, zone.z + z0 + (z1 - z0) * t);
+        obj.position.set(zone.x + x0 + (x1 - x0) * t, zone.y || 0, zone.z + z0 + (z1 - z0) * t);
         obj.userData.assembly = zone.id;
         obj.userData.walkableTop = height <= 1.5;
         obj.userData.breakable = true;
@@ -1777,8 +1783,9 @@ function tryJumpPad() {
   const pos = player.group.position;
   for (const pad of jumpPads)
     if (padContact(pad, pos)) {
-      const motion = player.padMotion || lastMove.clone().multiplyScalar(6),
-        impulse = padImpulse(pad, { x: motion.x, z: motion.z, y: player.padImpact || 0 });
+      // a pad with a target always throws towards it (islands); others follow the way you run onto them
+      const motion = pad.target ? new T.Vector3(pad.target.x - pad.x, 0, pad.target.z - pad.z).setLength(6) : player.padMotion || lastMove.clone().multiplyScalar(6),
+        impulse = padImpulse(pad, { x: motion.x, z: motion.z, y: pad.target ? 0 : player.padImpact || 0 });
       jumpFlight = { velocity: new T.Vector3(impulse.x, 0, impulse.z), vertical: impulse.vertical };
       sfx.play("jump-pad", { volume: 0.7 });
       player.padImpact = 0;
@@ -1839,9 +1846,10 @@ function updateJumpFlight(dt) {
 function launchBot(b, direction) {
   for (const pad of jumpPads)
     if (padContact(pad, b.group.position, 0.6)) {
+      if (pad.target) direction = new T.Vector3(pad.target.x - pad.x, 0, pad.target.z - pad.z).normalize();
       const impulse = padImpulse(
         pad,
-        { x: direction.x, z: direction.z, y: b.padImpact || 0 },
+        { x: direction.x, z: direction.z, y: pad.target ? 0 : b.padImpact || 0 },
         b.elite ? 1.2 : 1,
       );
       b.flight = { velocity: new T.Vector3(impulse.x, 0, impulse.z), vertical: impulse.vertical };
@@ -2142,6 +2150,19 @@ function buildNavigation() {
       ),
   });
   navGrid = Array.from({ length: navSize * navSize }, (_, i) => navigation.cells[i].length > 0);
+  // targeted pads are one-way links in the graph: bots walk onto the pad and get thrown to the target
+  for (const pad of jumpPads) {
+    if (!pad.target) continue;
+    const from = navigation.nearest(new T.Vector3(pad.x, pad.y, pad.z)),
+      to = navigation.nearest(new T.Vector3(pad.target.x, pad.target.y ?? terrainHeight(pad.target.x, pad.target.z), pad.target.z));
+    if (from < 0 || to < 0 || from === to) continue;
+    const n = navigation.nodes[from],
+      t = navigation.nodes[to];
+    if (Math.hypot(n.x - pad.x, n.z - pad.z) > 2.5 || Math.abs(n.y - pad.y) > 1.5) continue;
+    // the path search runs backwards from the goal over node.edges, so a one-way link from → to is stored on `to`
+    (t.extra ||= []).push(from);
+    if (!t.edges.includes(from)) t.edges.push(from);
+  }
 }
 function nearestOpen(cell) {
   if (navGrid[navIndex(cell.x, cell.z)]) return cell;
@@ -4642,7 +4663,8 @@ function chooseZoneStart() {
       [0, 4],
     ]) {
       const pos = new T.Vector3(zone.x + dx, 0, zone.z + dz);
-      if (!occupied(pos.x, 0, pos.z, 0.7)) {
+      pos.y = terrainHeight(pos.x, pos.z);
+      if (!occupied(pos.x, pos.y, pos.z, 0.7)) {
         player.group.position.copy(pos);
         player.safePosition = pos.clone();
         return;
@@ -5674,8 +5696,9 @@ function giantFreeSpot(near) {
       const a = (i / Math.max(1, r * 4)) * Math.PI * 2,
         x = near.x + Math.cos(a) * r,
         z = near.z + Math.sin(a) * r,
-        y = actorFloor(x, z, 1.5);
-      if (y > -0.5 && y < 1.5 && !giantOccupied(x, y, z)) return new T.Vector3(x, y, z);
+        high = generatedPlan?.type === "islands" ? 20 : 1.5, // floating islands: any island top will do
+        y = actorFloor(x, z, high);
+      if (y > -0.5 && y < high && !giantOccupied(x, y, z)) return new T.Vector3(x, y, z);
     }
   return null;
 }
