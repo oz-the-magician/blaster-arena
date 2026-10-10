@@ -1,0 +1,9 @@
+{
+  "name": "blaster-arena",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/spatial.test.mjs tests/jump-pad.test.mjs tests/navigation.test.mjs tests/topology.test.mjs tests/world.test.mjs tests/fortresses.test.mjs tests/decorate.test.mjs tests/hill.test.mjs tests/amphitheatre.test.mjs tests/biomes.test.mjs && node tests/runtime.mjs && node tests/generated-runtime.mjs ravine-qa && node tests/generated-runtime.mjs fort-qa fortresses && node tests/generated-runtime.mjs fort-qa-2 fortresses && node tests/generated-runtime.mjs hill-qa hill && node tests/generated-runtime.mjs amph-qa amphitheatre night && node tests/generated-runtime.mjs biome-qa fortresses night",
+    "check": "node --check dist/game.js && node --check dist/level.js && node --check dist/fortress.js && node --check dist/engine/spatial.js && node --check dist/engine/ground.js && node --check dist/expansion.js && node --check dist/expansion-assets.js && node --check dist/zone-templates.js && node --check dist/engine/jump-pad.js && node --check dist/engine/navigation.js && node --check dist/engine/lighting.js && node --check dist/engine/post.js && node --check dist/engine/flashes.js && node --check dist/weapons.js && node --check dist/generator/arenas.js && node --check dist/generator/fortresses.js && node --check dist/generator/hill.js && node --check dist/generator/amphitheatre.js && node --check dist/generator/biomes.js && node --check dist/generator/custom-map.js && node --check dist/editor/editor.js && node --check dist/main.js && node --check dist/engine/touch.js && node --check dist/engine/audio.js && node --check dist/generator/decorate.js && node --check dist/engine/ground-paint.js && node --check dist/engine/relief.js && node --check dist/generator/clusters.js && node --check dist/generator/topology.js && node --check dist/generator/preview.js && node --check dist/generator/world.js"
+  }
+}

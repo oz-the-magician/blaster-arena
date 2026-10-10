@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Арсенал · Blaster Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#150f1e;--panel:#1f1730;--line:#3b2f48;--text:#ece7f4;--muted:#9a93ab;--pink:#e84aa9;--cyan:#71eaff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Manrope,system-ui,sans-serif}
+header{max-width:1240px;margin:0 auto;padding:40px 24px 8px;display:grid;gap:14px}
+h1{font:700 clamp(30px,5vw,54px)/1 Unbounded,Manrope,sans-serif;margin:0;letter-spacing:-.02em}
+h1 span{color:var(--pink)}
+.lead{color:var(--muted);max-width:64ch;margin:0}
+#status{color:var(--cyan);font-size:13px;margin:0}
+#filter{display:flex;flex-wrap:wrap;gap:8px}
+#filter button{background:none;border:1px solid var(--line);color:var(--muted);padding:6px 14px;border-radius:999px;font:600 13px Manrope,sans-serif;cursor:pointer}
+#filter button.on{border-color:var(--pink);color:var(--text);background:#e84aa922}
+#grid{max-width:1240px;margin:0 auto;padding:16px 24px 64px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:22px}
+.card{background:var(--panel);border-radius:14px;overflow:hidden;border-top:4px solid var(--tone)}
+.pic{background:radial-gradient(circle at 50% 60%,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%)}
+.pic img{display:block;width:100%;aspect-ratio:32/20}
+.body{padding:4px 18px 18px}
+.class{margin:0;color:var(--tone);font-weight:700;font-size:13px}
+.card h2{font:700 22px/1.1 Unbounded,Manrope,sans-serif;margin:4px 0 6px}
+.desc{margin:0 0 12px;color:var(--muted);font-size:13px}
+dl{display:grid;grid-template-columns:1fr;gap:2px;margin:0}
+dl div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #ffffff0d;padding:2px 0}
+dt{color:var(--muted);font-size:12.5px}
+dd{margin:0;font-weight:700;font-size:13px;text-align:right}
+dd small{font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
+.note{margin:10px 0 0;font-size:12.5px;color:var(--cyan)}
+.use{margin:10px 0 0;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Арсенал <span>арены</span></h1>
+  <p class="lead">Все стволы игры с цифрами. Варианты одного класса стоят рядом. «Урон/с с перезарядкой» — сколько ствол наносит в среднем, если стрелять без перерыва, включая время перезарядки; по нему удобно сравнивать стволы между собой.</p>
+  <p id="status">Загружаю модели…</p>
+  <nav id="filter" aria-label="Класс"></nav>
+</header>
+<main id="grid"></main>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module" src="weapon-preview.js"></script>
+</body>
+</html>
